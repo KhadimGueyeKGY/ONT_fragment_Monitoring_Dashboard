@@ -1,18 +1,13 @@
 name: ont_fragment_dashboard
 channels:
-  - bioconda
   - conda-forge
+  - bioconda
+  - nodefaults
 dependencies:
-  - python=3.10
-  - samtools
+  - python>=3.10
+  - numpy
+  - plotly
+  - pysam
   - minimap2
-  - pip
-  - pip:
-      - pandas
-      - pysam
-      - plotly
-      - ipywidgets
-      - notebook
-      - jupyterlab
-      - voila
-      - nbformat
+  - samtools
+  - tk

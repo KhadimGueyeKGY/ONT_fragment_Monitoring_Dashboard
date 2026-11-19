@@ -1,0 +1,335 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="author" content="Khadim Gueye">
+<title>ONT Fragment Monitoring</title>
+<link rel="icon" href="/logo.png">
+<link rel="stylesheet" href="/static/app.css">
+<script>
+  try { const t = localStorage.getItem("theme"); if (t) document.documentElement.dataset.theme = t; } catch (e) {}
+</script>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <img src="/logo.png" alt="IGH" class="logo" onerror="this.style.display='none'">
+    <div>
+      <div class="brand-title">ONT Fragment Monitoring</div>
+      <div class="brand-sub">Malaria team, Institute of Genomics and Global Health</div>
+    </div>
+  </div>
+  <div class="top-actions">
+    <span id="statePill" class="pill pill-idle"><span class="dot"></span><span id="stateText">Idle</span></span>
+    <button class="icon-btn" id="themeBtn" title="Switch light or dark theme" aria-label="Theme">
+      <svg viewBox="0 0 24 24"><path d="M12 3a9 9 0 1 0 9 9 7 7 0 0 1-9-9z"/></svg>
+    </button>
+    <div class="menu-wrap">
+      <button class="icon-btn" id="menuBtn" title="Menu" aria-label="Menu">
+        <svg viewBox="0 0 24 24"><circle cx="12" cy="5" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="12" cy="19" r="1.6"/></svg>
+      </button>
+      <div class="menu" id="menu" hidden>
+        <button data-action="open-results">Open results folder</button>
+        <button data-action="check-update">Check for updates</button>
+        <button data-action="about">About</button>
+        <hr>
+        <button data-action="quit" class="danger">Close the dashboard</button>
+      </div>
+    </div>
+  </div>
+</header>
+
+<main class="layout">
+  <aside class="sidebar" id="sidebar">
+
+    <section class="card step">
+      <div class="step-head"><span class="step-num">1</span><h2>Sequencing run</h2></div>
+      <p class="hint">Choose the <b>fastq_pass</b> folder, or the run folder that contains it. Any path format works (C:\..., /mnt/c/..., /home/..., /Users/...).</p>
+      <div class="path-row">
+        <input id="pathInput" type="text" spellcheck="false" autocomplete="off" placeholder="Paste a path or click Browse">
+      </div>
+      <div class="btn-row">
+        <button class="btn" id="pickBtn">
+          <svg viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
+          Browse
+        </button>
+        <button class="btn ghost" id="browseBtn" title="Browse folders inside the dashboard">Browse here</button>
+      </div>
+      <div id="pathStatus" class="path-status" hidden></div>
+    </section>
+
+    <section class="card step">
+      <div class="step-head">
+        <span class="step-num">2</span><h2>Fragments</h2>
+        <span class="count-badge" id="selCount">0 selected</span>
+      </div>
+      <div class="group-row">
+        <span class="hint">Group by</span>
+        <div class="seg" id="groupBy"><button class="active" data-v="category">Category</button><button data-v="panel">Panel</button></div>
+      </div>
+      <div class="panel-chips" id="panelChips"></div>
+      <div class="search-row">
+        <input id="fragSearch" type="search" placeholder="Search gene or fragment">
+        <button class="btn small ghost" id="addFragBtn" title="Add your own fragment">+ Custom</button>
+      </div>
+      <div class="frag-list" id="fragList"></div>
+      <div class="lock-note" id="lockNote" hidden>Stop the monitoring to change the fragments.</div>
+    </section>
+
+    <section class="card step">
+      <details id="settingsBox">
+        <summary>
+          <div class="step-head"><span class="step-num">3</span><h2>Settings</h2><span class="summary-chev"></span></div>
+        </summary>
+        <div class="settings-grid">
+          <label>Reads needed per fragment<input type="number" min="1" data-setting="threshold"></label>
+          <label>Depth counted as covered<input type="number" min="1" data-setting="min_depth"></label>
+          <label>Minimum mapping quality<input type="number" min="0" max="60" data-setting="min_mapq"></label>
+          <label>Read must cover (% of fragment)<input type="number" min="1" max="100" data-setting="min_overlap"></label>
+          <label>Check for new reads every (s)<input type="number" min="5" data-setting="refresh_seconds"></label>
+          <label>CPU threads<input type="number" min="1" max="64" data-setting="threads"></label>
+        </div>
+        <p class="hint small">The read target is a choice of the lab, not a published standard. Default: 100 reads.</p>
+      </details>
+    </section>
+
+    <div class="run-actions">
+      <button class="btn primary big" id="startBtn">
+        <svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>Start monitoring
+      </button>
+      <button class="btn danger big" id="stopBtn" hidden>
+        <svg viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>Stop monitoring
+      </button>
+    </div>
+  </aside>
+
+  <section class="content">
+    <div class="card status-card" id="statusCard">
+      <div class="status-main">
+        <div>
+          <div class="status-title" id="statusTitle">Ready</div>
+          <div class="status-msg" id="statusMsg">Select a run and the fragments, then press Start monitoring.</div>
+        </div>
+        <div class="status-side">
+          <button class="btn small ghost" id="refreshBtn" hidden title="Look for new reads now">Check now</button>
+          <button class="btn small ghost" id="openOutBtn" hidden>Results folder</button>
+        </div>
+      </div>
+      <div class="progress" id="progress" hidden><div class="bar" id="progressBar"></div></div>
+      <div class="status-meta" id="statusMeta"></div>
+    </div>
+
+    <nav class="tabs" id="tabs" role="tablist">
+      <button class="tab active" data-tab="overview">Overview</button>
+      <button class="tab" data-tab="fragments">Reads per fragment</button>
+      <button class="tab" data-tab="coverage">Depth and coverage</button>
+      <button class="tab" data-tab="deletion" id="delTab" hidden>hrp2 / hrp3</button>
+      <button class="tab" data-tab="log">Activity</button>
+    </nav>
+
+    <div class="tab-panels">
+      <section class="tab-panel active" data-panel="overview">
+        <div class="card">
+          <div class="card-head">
+            <div>
+              <h3>Reads per barcode and fragment</h3>
+              <p class="hint">Blue: target reached. Red: below target, darker means fewer reads. Hover a cell for details, click it to open the fragment.</p>
+            </div>
+            <div class="legend">
+              <span class="lg"><i style="background:var(--low-strong)"></i>0</span>
+              <span class="lg"><i style="background:var(--low-soft)"></i>below</span>
+              <span class="lg"><i style="background:var(--pass-soft)"></i>target</span>
+              <span class="lg"><i style="background:var(--pass-strong)"></i>2x</span>
+            </div>
+          </div>
+          <div id="heatmap" class="plot"></div>
+        </div>
+      </section>
+
+      <section class="tab-panel" data-panel="fragments">
+        <div class="toolbar">
+          <input type="search" id="chartFilter" placeholder="Filter fragments">
+          <div class="seg" id="chartScale">
+            <button class="active" data-v="linear">Linear</button><button data-v="log">Log</button>
+          </div>
+        </div>
+        <div class="chart-grid" id="chartGrid"></div>
+      </section>
+
+      <section class="tab-panel" data-panel="coverage">
+        <div class="card">
+          <div class="card-head">
+            <div>
+              <h3 id="covTitle">Mean depth</h3>
+              <p class="hint" id="covHint">Average number of reads over each base of the fragment.</p>
+            </div>
+            <div class="seg" id="covMetric">
+              <button class="active" data-v="depth">Mean depth</button><button data-v="breadth">Coverage %</button>
+            </div>
+          </div>
+          <div id="covHeatmap" class="plot"></div>
+        </div>
+        <div class="card">
+          <div class="card-head">
+            <div>
+              <h3>Depth along the fragment</h3>
+              <p class="hint">Each line is a barcode. A drop to zero inside the fragment shows a gap in coverage.</p>
+            </div>
+            <div class="profile-ctl">
+              <select id="profFrag"></select>
+              <select id="profBc"></select>
+            </div>
+          </div>
+          <div id="profile" class="plot"></div>
+        </div>
+      </section>
+
+      <section class="tab-panel" data-panel="deletion">
+        <div class="card">
+          <div class="card-head">
+            <div>
+              <h3>hrp2 and hrp3 screen</h3>
+              <p class="hint" id="delHint"></p>
+            </div>
+            <a class="btn small ghost" href="/api/download?what=deletion">Download TSV</a>
+          </div>
+          <div class="del-legend">
+            <span class="st st-detected">Detected</span>
+            <span class="st st-low">Below target</span>
+            <span class="st st-possible_deletion">Possible deletion</span>
+            <span class="st st-insufficient">Not enough data</span>
+          </div>
+          <div class="del-grid" id="delGrid"></div>
+        </div>
+        <div class="card">
+          <h3>Reads compared with the other fragments</h3>
+          <p class="hint">Reads on hrp2 or hrp3 divided by the median reads of the other monitored fragments of the same barcode.</p>
+          <div id="delChart" class="plot"></div>
+        </div>
+      </section>
+
+      <section class="tab-panel" data-panel="log">
+        <div class="card">
+          <div class="card-head"><h3>Activity</h3><a class="btn small ghost" href="/api/download?what=stats">Download fragment table</a></div>
+          <pre class="log" id="logBox"></pre>
+        </div>
+      </section>
+    </div>
+
+    <div class="empty" id="emptyState">
+      <svg viewBox="0 0 64 64"><path d="M8 52h48M14 44V30M26 44V18M38 44V24M50 44V12"/></svg>
+      <p>Charts appear here as soon as the first barcode is processed.</p>
+    </div>
+  </section>
+</main>
+
+<footer class="foot">ONT Fragment Monitoring Dashboard <span id="verText"></span> by Khadim Gueye</footer>
+
+<!-- Setup screen -->
+<div class="overlay" id="setupOverlay" hidden>
+  <div class="dialog setup">
+    <img src="/logo.png" alt="" class="setup-logo" onerror="this.style.display='none'">
+    <h2 id="setupTitle">Checking the installation</h2>
+    <p class="hint" id="setupSub">Missing parts are installed automatically, only the first time.</p>
+    <ol class="checklist" id="setupList">
+      <li data-step="conda">conda</li>
+      <li data-step="environment">Software environment</li>
+      <li data-step="reference">Reference genome (Pf3D7)</li>
+      <li data-step="index">Reference index</li>
+    </ol>
+    <div class="progress" id="dlProgress" hidden><div class="bar" id="dlBar"></div></div>
+    <div class="hint small" id="dlText"></div>
+    <div class="error-box" id="setupError" hidden></div>
+    <div class="ready-box" id="readyBox" hidden>
+      <p><b>Everything is ready.</b> <span id="readyPlatform"></span></p>
+      <button class="btn primary big" id="readyGo">Choose the fragments</button>
+    </div>
+  </div>
+</div>
+
+<!-- Update dialog -->
+<div class="overlay" id="updateOverlay" hidden>
+  <div class="dialog">
+    <h2>A new version is available</h2>
+    <p>Version <b id="updLatest"></b> is available. You have version <b id="updCurrent"></b>.</p>
+    <p>Do you want to update now? Your results and the reference genome are kept.</p>
+    <pre class="notes" id="updNotes" hidden></pre>
+    <div class="error-box" id="updError" hidden></div>
+    <div class="dialog-actions">
+      <button class="btn ghost" id="updLater">Later</button>
+      <button class="btn primary" id="updYes">Yes, update</button>
+    </div>
+  </div>
+</div>
+
+<!-- Folder browser -->
+<div class="overlay" id="browseOverlay" hidden>
+  <div class="dialog wide">
+    <div class="dialog-head">
+      <h2>Choose the fastq_pass folder</h2>
+      <button class="icon-btn" data-close="browseOverlay" aria-label="Close"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+    </div>
+    <div class="roots" id="browseRoots"></div>
+    <div class="crumb" id="browseCrumb"></div>
+    <ul class="dir-list" id="browseList"></ul>
+    <div class="dialog-actions">
+      <button class="btn ghost" id="browseUp">Up one level</button>
+      <button class="btn primary" id="browseUse">Use this folder</button>
+    </div>
+  </div>
+</div>
+
+<!-- Custom fragment -->
+<div class="overlay" id="customOverlay" hidden>
+  <div class="dialog wide">
+    <div class="dialog-head">
+      <h2 id="customTitle">Add a fragment</h2>
+      <button class="icon-btn" data-close="customOverlay" aria-label="Close"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+    </div>
+    <div class="seg" id="customMode"><button class="active" data-v="form">One fragment</button><button data-v="file">From a BED or TSV file</button></div>
+    <div id="customForm" class="settings-grid">
+      <label>Name<input id="cName" placeholder="e.g. k13-propeller"></label>
+      <label>Gene<input id="cGene" placeholder="e.g. kelch13"></label>
+      <label>Chromosome<select id="cChrom"></select></label>
+      <label>Category<select id="cCat"></select></label>
+      <label>Start (1-based)<input id="cStart" type="number" min="1"></label>
+      <label>End (inclusive)<input id="cEnd" type="number" min="1"></label>
+      <label>Panel<input id="cPanel" value="Custom"></label>
+      <label>Length<input id="cLen" disabled></label>
+    </div>
+    <p class="hint small" id="cDefault" hidden></p>
+    <div id="customFile" hidden>
+      <p class="hint">BED (chrom, start, end, name; 0-based) or a TSV with the columns chrom, start, end, name, and optionally gene and category. Coordinates on Pf3D7. The category is found from the gene name when it is not given.</p>
+      <input type="file" id="cFile" accept=".bed,.tsv,.txt">
+      <label class="inline">Panel name<input id="cFilePanel" value="Custom"></label>
+    </div>
+    <div class="error-box" id="customError" hidden></div>
+    <div class="dialog-actions">
+      <button class="btn ghost danger-text" id="customReset" hidden>Restore default position</button>
+      <span class="spacer"></span>
+      <button class="btn ghost" data-close="customOverlay">Cancel</button>
+      <button class="btn primary" id="customSave">Add</button>
+    </div>
+  </div>
+</div>
+
+<!-- Confirm -->
+<div class="overlay" id="confirmOverlay" hidden>
+  <div class="dialog">
+    <h2 id="confirmTitle"></h2>
+    <p id="confirmText"></p>
+    <div class="dialog-actions">
+      <button class="btn ghost" id="confirmNo">Cancel</button>
+      <button class="btn primary" id="confirmYes">OK</button>
+    </div>
+  </div>
+</div>
+
+<div class="toasts" id="toasts"></div>
+
+<script src="/static/plotly.min.js"></script>
+<script src="/static/app.js"></script>
+</body>
+</html>

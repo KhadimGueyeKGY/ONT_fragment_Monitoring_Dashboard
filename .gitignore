@@ -1,1 +1,6 @@
 Reference/Pf3D7_v2.*
+Reference/*.download
+results/
+panels/custom.tsv
+__pycache__/
+*.pyc

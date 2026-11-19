@@ -75,6 +75,7 @@ $("#menu").onclick = async (e) => {
   if (a === "quit") {
     const msg = S.running ? "Monitoring is running and will be stopped. Close the dashboard?" : "Close the dashboard? Double-click the launcher to open it again.";
     if (await confirmBox("Close the dashboard", msg, "Close")) {
+      S.closed = true;
       await api("/api/quit", {}).catch(() => {});
       document.body.innerHTML = '<div class="empty" style="margin:40px"><p>The dashboard is closed. You can close this tab.</p></div>';
     }
@@ -402,10 +403,11 @@ const STATE_TEXT = { idle: "Ready", preparing: "Preparing", mapping: "Processing
 let polling = false;
 async function pollState() {
   const forceUpdate = false;
-  if (polling) return;
+  if (polling || S.closed) return;
   polling = true;
   try {
     const s = await api("/api/state");
+    if (S.offline) { location.reload(); return; }
     S.state = s;
     S.running = s.running;
     renderSetup(s.setup);
@@ -418,13 +420,17 @@ async function pollState() {
       const r = await api("/api/results");
       S.results = r && r.fragments ? r : null;
       renderResults(true);
+      autoFoldSidebar(S.running);
     }
   } catch (e) {
     if (!(e instanceof TypeError && /fetch/i.test(e.message))) { console.error(e); return; }
+    S.offline = true;
+    document.body.classList.add("offline");
     $("#stateText").textContent = "Offline";
     $("#statePill").className = "pill pill-error";
-    $("#statusTitle").textContent = "The dashboard is not running";
-    $("#statusMsg").textContent = "Double-click the Start_Dashboard launcher to start it again.";
+    show("offlineBar");
+    show("progress", false);
+    ["startBtn", "stopBtn", "pickBtn", "browseBtn"].forEach((id) => ($("#" + id).disabled = true));
   } finally { polling = false; }
 }
 
@@ -461,6 +467,8 @@ $("#readyGo").onclick = () => {
   S.setupSeen = true;
   try { sessionStorage.setItem("setupSeen", "1"); } catch (e) {}
   show("setupOverlay", false);
+  S.sidebarUserSet = true;
+  setSidebar(true);
   const card = $("#fragList").closest(".card");
   card.scrollIntoView({ behavior: "smooth", block: "start" });
   card.classList.add("flash-card");
@@ -468,7 +476,26 @@ $("#readyGo").onclick = () => {
   pollState();
 };
 
+/* small screens: the run setup folds away once there is something to look at */
+function setSidebar(open) {
+  $("#sidebar").classList.toggle("collapsed", !open);
+  $("#setupToggle").setAttribute("aria-expanded", String(open));
+}
+$("#setupToggle").onclick = () => {
+  S.sidebarUserSet = true;
+  setSidebar($("#sidebar").classList.contains("collapsed"));
+};
+function autoFoldSidebar(running) {
+  const n = S.selected.size;
+  const run = S.state?.job?.fastq_display || $("#pathInput").value || "";
+  const name = run.split(/[\\/]/).filter((x) => x && x !== "fastq_pass").pop() || "no run selected";
+  $("#setupSummary").textContent = `${name} | ${n} fragment${n === 1 ? "" : "s"}`;
+  if (S.sidebarUserSet) return;
+  setSidebar(!(running || (S.results && S.results.barcodes && S.results.barcodes.length)));
+}
+
 function renderJob(job, running) {
+  autoFoldSidebar(running);
   const state = job.state || "idle";
   $("#statePill").className = "pill pill-" + state;
   $("#stateText").textContent = STATE_TEXT[state] || state;
@@ -577,14 +604,14 @@ function renderResults(force) {
   const r = S.results;
   const has = !!(r && r.barcodes && r.barcodes.length);
   show("emptyState", !has && S.tab !== "log");
-  $$(".tab-panel").forEach((p) => { if (p.dataset.panel !== "log") p.style.visibility = has ? "" : "hidden"; });
+  $$(".tab-panel").forEach((p) => { if (p.dataset.panel !== "log") p.style.display = has ? "" : "none"; });
   $("#delTab").hidden = !(r && r.deletion);
   if (S.tab === "deletion" && !(r && r.deletion)) return switchTab("overview");
   if (!has) return;
   const key = S.resultsVersion + "|" + isDark() + "|" + threshold() + "|" + S.covMetric + "|" + S.scale;
   if (!force && rendered[S.tab] === key) return;
   rendered[S.tab] = key;
-  ({ overview: drawOverview, fragments: drawFragments, coverage: drawCoverage, deletion: drawDeletion }[S.tab] || (() => {}))();
+  ({ overview: drawOverview, plate: drawPlate, fragments: drawFragments, coverage: drawCoverage, deletion: drawDeletion }[S.tab] || (() => {}))();
 }
 
 function drawOverview() {
@@ -617,6 +644,78 @@ function drawOverview() {
     }, 120);
   });
 }
+
+/* plate map: fixed layout chosen by the lab, barcode01 in A1 then down the column
+   (barcode02 in B1 ... barcode08 in H1, barcode09 in A2). Barcode 97 and above go on a second plate. */
+function wellOf(barcode) {
+  const m = /(\d+)$/.exec(barcode);
+  if (!m) return null;
+  const i = Number(m[1]) - 1;
+  if (i < 0) return null;
+  const plate = Math.floor(i / 96), k = i % 96;
+  return { plate, row: k % 8, col: Math.floor(k / 8) };
+}
+function shortCount(n) { return n >= 10000 ? Math.round(n / 1000) + "k" : n >= 1000 ? (n / 1000).toFixed(1).replace(/\.0$/, "") + "k" : String(n); }
+function drawPlate() {
+  const r = S.results, thr = threshold(), grid = $("#plateGrid");
+  $("#lgPass").textContent = `${thr} reads or more`;
+  $("#lgLow").textContent = `below ${thr}`;
+  $("#plateHint").textContent = "Each well is a barcode: barcode01 in A1, barcode02 in B1, down each column (barcode09 in A2). Hover a well to see its read count.";
+  const placed = r.barcodes.map((bc) => ({ bc, w: wellOf(bc) })).filter((x) => x.w);
+  if (!placed.length) {
+    grid.innerHTML = '<div class="empty"><p>The plate map needs barcoded samples (folders named barcode01, barcode02, ...).</p></div>';
+    return;
+  }
+  const plates = [...new Set(placed.map((x) => x.w.plate))].sort((a, b) => a - b);
+  const q = ($("#plateFilter").value || "").toLowerCase();
+  const frs = r.fragments.filter((f) => !q || `${f.name} ${f.gene} ${f.panel}`.toLowerCase().includes(q));
+  const rows = "ABCDEFGH";
+  let html = "";
+  for (const f of frs) {
+    for (const p of plates) {
+      const cells = {};
+      placed.filter((x) => x.w.plate === p).forEach((x) => (cells[x.w.row * 12 + x.w.col] = x.bc));
+      let n = 0, pass = 0;
+      let g = '<div class="plate"><span></span>' + Array.from({ length: 12 }, (_, c) => `<span class="lab">${c + 1}</span>`).join("");
+      for (let row = 0; row < 8; row++) {
+        g += `<span class="lab">${rows[row]}</span>`;
+        for (let col = 0; col < 12; col++) {
+          const bc = cells[row * 12 + col];
+          const well = `${rows[row]}${col + 1}`;
+          if (!bc) { g += `<span class="well none" data-tip="${well}: no barcode"></span>`; continue; }
+          const v = r.reads[bc][f.id] || 0;
+          const cls = v === 0 ? "zero" : v >= thr ? "pass" : "low";
+          n++; if (v >= thr) pass++;
+          g += `<span class="well ${cls}" data-tip="${well} | ${esc(bc)} | ${fmt(v)} reads">${v ? shortCount(v) : ""}</span>`;
+        }
+      }
+      g += "</div>";
+      const plateLabel = plates.length > 1 ? ` | plate ${p + 1}` : "";
+      html += `<div class="plate-card"><div class="ct"><b>${esc(fragLabel(f))}</b><span>${esc(f.panel)}${plateLabel}</span></div>${g}` +
+        `<div class="sub">${pass} of ${n} barcodes at ${thr} reads or more</div></div>`;
+    }
+  }
+  grid.innerHTML = html || '<div class="hint">No fragment matches the filter.</div>';
+}
+(() => {
+  const tip = document.createElement("div");
+  tip.className = "plate-tip"; tip.hidden = true;
+  document.body.appendChild(tip);
+  $("#plateGrid").addEventListener("mousemove", (e) => {
+    const w = e.target.closest(".well");
+    if (!w) { tip.hidden = true; return; }
+    tip.textContent = w.dataset.tip;
+    tip.hidden = false;
+    const x = Math.min(e.clientX + 14, window.innerWidth - tip.offsetWidth - 8);
+    tip.style.left = x + "px"; tip.style.top = (e.clientY + 14) + "px";
+  });
+  $("#plateGrid").addEventListener("mouseleave", () => (tip.hidden = true));
+  $("#plateGrid").addEventListener("click", (e) => {
+    const w = e.target.closest(".well");
+    if (w) toast(w.dataset.tip);
+  });
+})();
+$("#plateFilter").addEventListener("input", () => renderResults(true));
 
 function drawFragments() {
   const r = S.results, thr = threshold(), grid = $("#chartGrid");

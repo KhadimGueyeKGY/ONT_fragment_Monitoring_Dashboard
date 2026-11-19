@@ -202,18 +202,60 @@ def list_dirs(raw: str) -> dict:
     }
 
 
+# Windows: the Explorer style folder window (address bar, search, quick access). If it cannot be
+# created, the older folder tree window is used instead.
 _PS_PICKER = r"""
+$ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Windows.Forms
 [System.Windows.Forms.Application]::EnableVisualStyles()
-$owner = New-Object System.Windows.Forms.Form -Property @{TopMost=$true; ShowInTaskbar=$false; Opacity=0}
-$owner.Show(); $owner.Activate()
-$d = New-Object System.Windows.Forms.FolderBrowserDialog
-$d.Description = 'Select the fastq_pass folder of the run'
-$d.ShowNewFolderButton = $false
-$r = $d.ShowDialog($owner)
-$owner.Close()
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
-if ($r -eq [System.Windows.Forms.DialogResult]::OK) { Write-Output $d.SelectedPath }
+$owner = New-Object System.Windows.Forms.Form -Property @{TopMost=$true; ShowInTaskbar=$false; Opacity=0; StartPosition='CenterScreen'}
+$owner.Show(); $owner.Activate()
+$title = 'Select the fastq_pass folder of the run'
+$picked = $null
+try {
+  Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+public static class ExplorerFolderPicker {
+  [ComImport, Guid("DC1C5A9C-E88A-4dde-A5A1-60F82A20AEF7")] class FileOpenDialog {}
+  [ComImport, Guid("42f85136-db7e-439c-85f1-e4075d135fc8"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+  interface IFileOpenDialog {
+    [PreserveSig] int Show(IntPtr owner);
+    void SetFileTypes(); void SetFileTypeIndex(); void GetFileTypeIndex(); void Advise(); void Unadvise();
+    void SetOptions(uint options); void GetOptions(); void SetDefaultFolder(); void SetFolder(); void GetFolder();
+    void GetCurrentSelection(); void SetFileName(); void GetFileName();
+    void SetTitle([MarshalAs(UnmanagedType.LPWStr)] string title);
+    void SetOkButtonLabel([MarshalAs(UnmanagedType.LPWStr)] string label);
+    void SetFileNameLabel();
+    void GetResult(out IShellItem item);
+  }
+  [ComImport, Guid("43826D1E-E718-42EE-BC55-A1E261C37BFE"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+  interface IShellItem {
+    void BindToHandler(); void GetParent();
+    void GetDisplayName(uint sigdn, [MarshalAs(UnmanagedType.LPWStr)] out string name);
+  }
+  public static string Pick(IntPtr owner, string title) {
+    IFileOpenDialog dialog = (IFileOpenDialog)new FileOpenDialog();
+    dialog.SetOptions(0x20 | 0x40 | 0x800);
+    dialog.SetTitle(title);
+    dialog.SetOkButtonLabel("Select folder");
+    if (dialog.Show(owner) != 0) return "";
+    IShellItem item; dialog.GetResult(out item);
+    string path; item.GetDisplayName(0x80058000, out path);
+    return path;
+  }
+}
+'@
+  $picked = [ExplorerFolderPicker]::Pick($owner.Handle, $title)
+} catch {
+  $d = New-Object System.Windows.Forms.FolderBrowserDialog
+  $d.Description = $title
+  $d.ShowNewFolderButton = $false
+  if ($d.ShowDialog($owner) -eq [System.Windows.Forms.DialogResult]::OK) { $picked = $d.SelectedPath }
+}
+$owner.Close()
+if ($picked) { Write-Output $picked }
 """
 
 

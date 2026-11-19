@@ -77,6 +77,7 @@ allow it to run as a program, or start it from a terminal with
 | Tab | What it shows |
 |---|---|
 | Overview | One cell per barcode and fragment with its read count. Blue: target reached. Red: below target, darker means fewer reads. Click a cell to open the fragment. |
+| Plate map | One 96-well plate per fragment. Blue: target reached. Red: below target. Grey: 0 reads. Dashed: no barcode in that well. The layout is fixed by the lab, not read from the run: barcode01 in A1, then down each column (barcode02 in B1 ... barcode08 in H1, barcode09 in A2). |
 | Reads per fragment | One bar chart per fragment, one bar per barcode, with the target as a dashed line. |
 | Depth and coverage | Mean depth and percentage of the fragment covered, then the depth along a fragment for each barcode. |
 | hrp2 / hrp3 | Shown only when hrp2 or hrp3 is selected. Status per barcode, and reads on hrp2 / hrp3 compared with the other fragments. |

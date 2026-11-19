@@ -41,8 +41,16 @@
   </div>
 </header>
 
+<div class="offline-bar" id="offlineBar" hidden>
+  <b>The dashboard is not running.</b> Double-click the Start_Dashboard launcher. This page reconnects by itself.
+</div>
+
 <main class="layout">
   <aside class="sidebar" id="sidebar">
+    <button class="card setup-toggle" id="setupToggle" aria-expanded="true">
+      <span><b>Run setup</b><span class="hint" id="setupSummary"></span></span>
+      <span class="summary-chev"></span>
+    </button>
 
     <section class="card step">
       <div class="step-head"><span class="step-num">1</span><h2>Sequencing run</h2></div>
@@ -123,6 +131,7 @@
 
     <nav class="tabs" id="tabs" role="tablist">
       <button class="tab active" data-tab="overview">Overview</button>
+      <button class="tab" data-tab="plate">Plate map</button>
       <button class="tab" data-tab="fragments">Reads per fragment</button>
       <button class="tab" data-tab="coverage">Depth and coverage</button>
       <button class="tab" data-tab="deletion" id="delTab" hidden>hrp2 / hrp3</button>
@@ -146,6 +155,27 @@
           </div>
           <div id="heatmap" class="plot"></div>
         </div>
+      </section>
+
+      <section class="tab-panel" data-panel="plate">
+        <div class="card plate-head">
+          <div class="card-head">
+            <div>
+              <h3>Plate map per fragment</h3>
+              <p class="hint" id="plateHint">Each well is a barcode. Hover a well to see its read count.</p>
+            </div>
+            <div class="plate-legend">
+              <span class="lg"><i class="well-dot pass"></i><span id="lgPass">100 reads or more</span></span>
+              <span class="lg"><i class="well-dot low"></i><span id="lgLow">below 100</span></span>
+              <span class="lg"><i class="well-dot zero"></i>0 reads</span>
+              <span class="lg"><i class="well-dot none"></i>no barcode</span>
+            </div>
+          </div>
+          <div class="toolbar">
+            <input type="search" id="plateFilter" placeholder="Filter fragments">
+          </div>
+        </div>
+        <div class="plate-grid" id="plateGrid"></div>
       </section>
 
       <section class="tab-panel" data-panel="fragments">

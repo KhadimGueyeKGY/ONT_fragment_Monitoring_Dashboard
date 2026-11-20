@@ -1,5 +1,25 @@
 # Changelog
 
+## 3.0.1
+
+- Faster: the statistics of a barcode are computed about 25 times faster (same values).
+- Barcodes are processed 5 at a time (setting: Barcodes processed at the same time).
+- Each barcode appears in the charts as soon as it is finished, without waiting for the
+  others.
+- The analysis uses half of the processors by default and runs at low priority, so the
+  sequencing software is not slowed down.
+- Windows: "Malaria dashboard monitor" program with the logo, no console window, an icon
+  near the clock, and a shortcut on the Desktop and in the Start menu.
+- macOS and Linux: "Malaria dashboard monitor" application with the logo, added at the
+  first start.
+- The dashboard opens in its own window (Edge or Chrome app window).
+- The update check runs at every start and its window comes first.
+- A barcode that fails no longer stops the monitoring: it is tried again at the next check.
+- Explorer style folder window on Windows.
+- Plate map tab: one 96-well plate per fragment, barcode01 in A1 then down each column.
+- On tablets and phones the run setup folds away once results are shown.
+- Clear message when the dashboard is closed, and the page reconnects by itself.
+
 ## 3.0.0
 
 - Starts with a double-click on Windows, macOS and Linux. conda, the environment, the

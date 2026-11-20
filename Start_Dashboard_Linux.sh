@@ -1,4 +1,5 @@
 #!/bin/bash
+# Malaria dashboard monitor (ONT fragment monitoring). Author: Khadim Gueye
 cd "$(dirname "$0")" || exit 1
 if [ ! -t 1 ]; then
   for term in x-terminal-emulator gnome-terminal konsole xfce4-terminal xterm; do

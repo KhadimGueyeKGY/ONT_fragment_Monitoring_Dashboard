@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Malaria dashboard monitor (ONT fragment monitoring). Author: Khadim Gueye
 # Prepares conda and the environment, then starts the dashboard. Used by the Start_Dashboard launchers.
 set -u
 
@@ -109,6 +110,66 @@ elif ! env_ok "$ENV_PREFIX" || [ "$(cat "$MARK" 2>/dev/null)" != "$(env_hash)" ]
 fi
 env_ok "$ENV_PREFIX" || fail "The environment is incomplete (python, pysam, minimap2 or samtools missing)."
 say "      ready"
+
+# macOS and Linux: an application with the logo, in the applications menu and on the Desktop.
+install_app_launcher() {
+  local name="Malaria dashboard monitor" icon="$ROOT/img/icon_256.png" desk="$HOME/Desktop"
+  if [ "$(uname)" = "Darwin" ]; then
+    local app="$HOME/Applications/$name.app"
+    [ -f "$app/Contents/MacOS/launcher" ] && grep -qF "$ROOT" "$app/Contents/MacOS/launcher" && return 0
+    mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
+    cat > "$app/Contents/MacOS/launcher" <<EOF2
+#!/bin/bash
+# Author: Khadim Gueye
+open -a Terminal "$ROOT/Start_Dashboard_macOS.command"
+EOF2
+    chmod +x "$app/Contents/MacOS/launcher" "$ROOT/Start_Dashboard_macOS.command"
+    cat > "$app/Contents/Info.plist" <<EOF2
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>CFBundleName</key><string>$name</string>
+  <key>CFBundleDisplayName</key><string>$name</string>
+  <key>CFBundleIdentifier</key><string>org.igh.malaria-dashboard-monitor</string>
+  <key>CFBundleExecutable</key><string>launcher</string>
+  <key>CFBundleIconFile</key><string>icon</string>
+  <key>CFBundlePackageType</key><string>APPL</string>
+  <key>CFBundleShortVersionString</key><string>$(cat "$ROOT/VERSION")</string>
+</dict></plist>
+EOF2
+    local set; set="$(mktemp -d)/icon.iconset"; mkdir -p "$set"
+    for s in 16 32 64 128 256 512; do
+      sips -z $s $s "$icon" --out "$set/icon_${s}x${s}.png" >/dev/null 2>&1
+      sips -z $((s * 2)) $((s * 2)) "$icon" --out "$set/icon_${s}x${s}@2x.png" >/dev/null 2>&1
+    done
+    iconutil -c icns "$set" -o "$app/Contents/Resources/icon.icns" >/dev/null 2>&1
+    [ -d "$desk" ] && ln -sfn "$app" "$desk/$name.app"
+    say "      Application added: ~/Applications/$name and on the Desktop"
+  elif [ "$(uname)" = "Linux" ] && ! grep -qi microsoft /proc/version 2>/dev/null; then
+    local dir="$HOME/.local/share/applications" file="malaria-dashboard-monitor.desktop"
+    [ -f "$dir/$file" ] && grep -qF "$ROOT" "$dir/$file" && return 0
+    mkdir -p "$dir"
+    cat > "$dir/$file" <<EOF2
+[Desktop Entry]
+Type=Application
+Name=$name
+Comment=ONT fragment monitoring dashboard, Malaria team IGH (author: Khadim Gueye)
+Exec=bash "$ROOT/app/bootstrap.sh"
+Path=$ROOT
+Icon=$icon
+Terminal=true
+Categories=Science;Biology;
+EOF2
+    chmod +x "$dir/$file"
+    if [ -d "$desk" ]; then
+      cp "$dir/$file" "$desk/$file" && chmod +x "$desk/$file"
+      command -v gio >/dev/null 2>&1 && gio set "$desk/$file" metadata::trusted true 2>/dev/null
+    fi
+    say "      Application added to the applications menu and on the Desktop"
+  fi
+  return 0
+}
+install_app_launcher || true
 
 say "[3/4] Reference and index are checked by the dashboard itself"
 say "[4/4] Starting the dashboard in your browser"

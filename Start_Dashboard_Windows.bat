@@ -1,7 +1,10 @@
 @echo off
+rem Malaria dashboard monitor (ONT fragment monitoring). Author: Khadim Gueye
 setlocal
-title ONT Fragment Monitoring Dashboard
+title Malaria dashboard monitor
 cd /d "%~dp0"
+
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0app\create_shortcut.ps1" >nul 2>&1
 
 where wsl.exe >nul 2>&1 || goto nowsl
 wsl.exe -l -q >nul 2>&1 || goto nowsl

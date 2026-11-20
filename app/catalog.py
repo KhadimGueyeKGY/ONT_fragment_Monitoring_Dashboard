@@ -1,3 +1,4 @@
+# Malaria dashboard monitor (ONT fragment monitoring). Author: Khadim Gueye
 from __future__ import annotations
 
 import csv

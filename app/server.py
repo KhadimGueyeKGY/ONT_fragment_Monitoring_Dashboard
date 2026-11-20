@@ -1,3 +1,4 @@
+# Malaria dashboard monitor (ONT fragment monitoring). Author: Khadim Gueye
 from __future__ import annotations
 
 import argparse
@@ -206,8 +207,7 @@ class Handler(BaseHTTPRequestHandler):
                     raise ValueError("The reference is not ready yet.")
                 info = pu.resolve_fastq_pass(body.get("path", ""))
                 APP.monitor.start(Path(info["path"]), body.get("fragments", []), body.get("settings", {}))
-                save_prefs({"fastq_pass": info["display"], "fragments": body.get("fragments", []),
-                            "settings": body.get("settings", {})})
+                save_prefs({"fastq_pass": info["display"], "fragments": body.get("fragments", [])})
 
                 def remember():
                     for _ in range(100):
@@ -309,7 +309,7 @@ def main() -> int:
     url = f"http://127.0.0.1:{server.server_address[1]}"
     STATE_DIR.mkdir(parents=True, exist_ok=True)
     INSTANCE_FILE.write_text(json.dumps({"url": url, "pid": os.getpid()}))
-    log(f"Dashboard running at {url} on {pu.os_label()}. Keep this window open while you use it.")
+    log(f"Dashboard running at {url} on {pu.os_label()}.")
     if not args.no_browser:
         threading.Timer(0.8, pu.open_browser, args=(url,)).start()
     try:

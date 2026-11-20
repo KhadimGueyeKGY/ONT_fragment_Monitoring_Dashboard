@@ -1,3 +1,4 @@
+// Malaria dashboard monitor (ONT fragment monitoring). Author: Khadim Gueye
 "use strict";
 
 const $ = (s, r = document) => r.querySelector(s);
@@ -92,13 +93,24 @@ async function init() {
   S.roots = d.roots;
   $("#verText").textContent = "v" + d.version;
   const p = d.prefs || {};
-  S.settings = { ...d.defaults, ...(p.settings || {}) };
+  // Only the settings changed by the user are kept, so new defaults reach everyone.
+  // Preferences saved before version 3.0.1 held every setting: their CPU values are dropped once.
+  S.custom = { ...(p.settings || {}) };
+  if (p.settings_v !== 2) { delete S.custom.threads; delete S.custom.parallel; }
+  for (const k of Object.keys(S.custom)) if (S.custom[k] === d.defaults[k]) delete S.custom[k];
+  S.settings = { ...d.defaults, ...S.custom };
   const known = new Set(S.catalog.map((f) => f.id));
   const saved = (p.fragments || []).filter((id) => known.has(id));
   S.selected = new Set(saved.length ? saved : S.catalog.filter((f) => f.panel === "IGH").map((f) => f.id));
   $$("[data-setting]").forEach((el) => {
     el.value = S.settings[el.dataset.setting];
-    el.onchange = () => { S.settings[el.dataset.setting] = Number(el.value); savePrefs(); if (el.dataset.setting === "threshold") renderResults(true); };
+    el.onchange = () => {
+      const k = el.dataset.setting, v = Number(el.value);
+      S.settings[k] = v;
+      if (v === S.defaults[k]) delete S.custom[k]; else S.custom[k] = v;
+      savePrefs();
+      if (k === "threshold") renderResults(true);
+    };
   });
   if (p.fastq_pass) { $("#pathInput").value = p.fastq_pass; resolvePath(p.fastq_pass, true); }
   S.platform = d.platform;
@@ -115,7 +127,7 @@ async function init() {
 let prefTimer;
 function savePrefs() {
   clearTimeout(prefTimer);
-  prefTimer = setTimeout(() => api("/api/prefs", { fragments: [...S.selected], settings: S.settings }).catch(() => {}), 400);
+  prefTimer = setTimeout(() => api("/api/prefs", { fragments: [...S.selected], settings: S.custom, settings_v: 2 }).catch(() => {}), 400);
 }
 
 /* ---------- Step 1: path ---------- */
@@ -522,7 +534,7 @@ function renderJob(job, running) {
   if (pr) $("#progressBar").style.width = ((100 * pr.current) / pr.total).toFixed(1) + "%";
   const meta = [];
   if (job.fastq_display) meta.push(`<span>Run <b class="path">${esc(job.fastq_display)}</b></span>`);
-  if (pr) meta.push(`<span>Barcode <b>${pr.current} of ${pr.total}</b> (${esc(pr.barcode)})</span>`);
+  if (pr) meta.push(`<span>Barcodes done <b>${pr.current} of ${pr.total}</b>${pr.running ? ` (${pr.running} running)` : ""}</span>`);
   if (job.cycle) meta.push(`<span>Check <b>#${job.cycle}</b></span>`);
   if (S.results?.updated) meta.push(`<span>Last result <b>${esc(S.results.updated.slice(11))}</b></span>`);
   $("#statusMeta").innerHTML = meta.join("");
@@ -532,7 +544,7 @@ function renderUpdate(u, force) {
   if (!u) return;
   if (force && u.checked && !u.available && !u.error) toast(`You have the latest version (${u.current}).`, "ok");
   if (force && u.error) toast(u.error, "err");
-  if (!u.available || S.updateShown || !$("#setupOverlay").hidden) return;
+  if (!u.available || S.updateShown) return;
   let later = "";
   try { later = sessionStorage.getItem("updateLater"); } catch (e) {}
   if (later === u.latest && !force) return;
@@ -625,6 +637,8 @@ function drawOverview() {
   }));
   const el = $("#heatmap");
   const h = Math.max(280, 26 * bcs.length + 150);
+  // The height grows with the number of barcodes; the container is sized first so Plotly follows.
+  el.style.height = h + "px";
   const roomy = (el.clientWidth || 800) / Math.max(1, frs.length) >= 30;
   Plotly.react(el, [{
     type: "heatmap", z, x: frs.map(fragLabel), y: bcs, text, customdata: hover, texttemplate: roomy && bcs.length * frs.length <= 1500 ? "%{text}" : "",
@@ -760,6 +774,7 @@ function drawCoverage() {
   const src = depth ? r.depth : r.breadth;
   const z = bcs.map((bc) => frs.map((f) => src[bc][f.id] || 0));
   const zmax = depth ? Math.max(threshold(), ...z.flat()) : 100;
+  $("#covHeatmap").style.height = Math.max(280, 26 * bcs.length + 150) + "px";
   Plotly.react($("#covHeatmap"), [{
     type: "heatmap", z, x: frs.map(fragLabel), y: bcs, zmin: 0, zmax,
     texttemplate: bcs.length * frs.length <= 1500 ? (depth ? "%{z:.0f}" : "%{z:.0f}%") : "", textfont: { size: 10 },

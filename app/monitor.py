@@ -1,3 +1,4 @@
+# Malaria dashboard monitor (ONT fragment monitoring). Author: Khadim Gueye
 from __future__ import annotations
 
 import csv
@@ -10,6 +11,7 @@ import shutil
 import subprocess
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from pathlib import Path
 
@@ -25,11 +27,15 @@ DEFAULT_SETTINGS = {
     "min_mapq": 10,
     "min_overlap": 50,
     "refresh_seconds": 30,
-    "threads": max(1, min(16, (os.cpu_count() or 2) - 1)),
+    # Half of the processors by default: the sequencer (MinKNOW, basecalling) keeps the other half.
+    "threads": max(1, min(16, (os.cpu_count() or 2) // 2)),
+    "parallel": 5,
     "padding": 50,
     "deletion_ratio": 0.05,
     "include_unclassified": False,
 }
+# Analysis programs run at low priority so that they never slow down the sequencing software.
+LOW_PRIORITY = ["nice", "-n", "15"] if shutil.which("nice") else []
 STATS_KEYS = ("min_depth", "min_mapq", "min_overlap", "threshold", "deletion_ratio")
 FILE_SETTLE_SECONDS = 10
 PROFILE_BINS = 120
@@ -58,6 +64,8 @@ class Monitor:
         self.catalog = catalog
         self.log = log
         self.lock = threading.RLock()
+        self.state_lock = threading.Lock()
+        self.publish_lock = threading.Lock()
         self.stop_event = threading.Event()
         self.wake_event = threading.Event()
         self.thread: threading.Thread | None = None
@@ -92,8 +100,9 @@ class Monitor:
         if not fragments:
             raise ValueError("Select at least one fragment.")
         cfg = {**DEFAULT_SETTINGS, **{k: settings[k] for k in settings if k in DEFAULT_SETTINGS}}
-        for key in ("threshold", "min_depth", "min_mapq", "min_overlap", "refresh_seconds", "threads", "padding"):
+        for key in ("threshold", "min_depth", "min_mapq", "min_overlap", "refresh_seconds", "threads", "padding", "parallel"):
             cfg[key] = max(0, int(cfg[key]))
+        cfg["parallel"] = min(32, max(1, cfg["parallel"]))
         cfg["refresh_seconds"] = max(5, cfg["refresh_seconds"])
         cfg["threads"] = max(1, cfg["threads"])
         cfg["min_overlap"] = min(100, cfg["min_overlap"])
@@ -196,8 +205,17 @@ class Monitor:
         run_dir = self.results_root / f"{run_label}_{key}"
         (run_dir / "bam").mkdir(parents=True, exist_ok=True)
         (run_dir / "tmp").mkdir(exist_ok=True)
+        # A new run starts from a clean screen; the same run started again shows its last results at once.
+        previous = None
+        if (run_dir / "results.json").exists():
+            try:
+                previous = json.loads((run_dir / "results.json").read_text(encoding="utf-8"))
+            except Exception:
+                previous = None
         with self.lock:
             self.run_dir = run_dir
+            self.results = previous
+            self.results_version += 1
 
         ref_fa = run_dir / "fragments_reference.fasta"
         ref_mmi = run_dir / "fragments_reference.mmi"
@@ -253,7 +271,7 @@ class Monitor:
         return loci
 
     def _exec(self, cmd: list[str]) -> None:
-        out = subprocess.run(cmd, capture_output=True, text=True)
+        out = subprocess.run(LOW_PRIORITY + cmd, capture_output=True, text=True)
         if out.returncode != 0:
             raise RuntimeError(f"{cmd[0]} failed: {out.stderr.strip()[-400:]}")
 
@@ -270,37 +288,90 @@ class Monitor:
             state["stats_sig"] = stats_sig
 
         total = len(groups)
-        self._set_job(state="mapping", next_cycle_at=None,
-                      message=f"Checking {total} barcodes for new reads." if total else "Waiting for the first reads.")
-        for i, (bc, folder) in enumerate(groups, 1):
+        order = [g[0] for g in groups]
+        # Never more mapping jobs than CPU threads allowed, so the total load stays within the setting.
+        workers = max(1, min(cfg["parallel"], cfg["threads"], total or 1))
+        per_job_threads = max(1, cfg["threads"] // workers)
+        self._set_job(state="mapping", next_cycle_at=None, progress={"current": 0, "total": total, "running": workers} if total else None,
+                      message=f"Processing {total} barcodes, {workers} at a time." if total else "Waiting for the first reads.")
+
+        def process(bc: str, folder: Path) -> bool:
             self._check_stop()
-            self._set_job(progress={"current": i, "total": total, "barcode": bc})
-            done = set(state["files"].get(bc, []))
+            with self.state_lock:
+                done = set(state["files"].get(bc, []))
+                has_stats = bc in state["stats"]
             cutoff = time.time() - FILE_SETTLE_SECONDS
             new = [p for p in list_read_files(folder) if p.name not in done and p.stat().st_mtime < cutoff]
             bam = run["dir"] / "bam" / f"{bc}.bam"
             if new:
-                self._set_job(message=f"{bc}: mapping {len(new)} new file(s).")
-                n_reads = self._map_batch(new, bam, run, cfg["threads"])
-                state["files"][bc] = sorted(done | {p.name for p in new})
-                state["total_reads"][bc] = state["total_reads"].get(bc, 0) + n_reads
-                state["stats"].pop(bc, None)
+                n_reads = self._map_batch(new, bam, run, per_job_threads)
+                with self.state_lock:
+                    state["files"][bc] = sorted(done | {p.name for p in new})
+                    state["total_reads"][bc] = state["total_reads"].get(bc, 0) + n_reads
                 self.log(f"{bc}: {len(new)} new file(s), {n_reads} reads processed.")
-            if bc not in state["stats"]:
-                state["stats"][bc] = self._barcode_stats(bam, run, cfg) if bam.exists() else self._empty_stats(run)
-            write_json(run["state_path"], state)
+            if new or not has_stats:
+                stats = self._barcode_stats(bam, run, cfg) if bam.exists() else self._empty_stats(run)
+                with self.state_lock:
+                    state["stats"][bc] = stats
+                    write_json(run["state_path"], state)
+                return True
+            return False
 
-        self._publish(run, [g[0] for g in groups])
+        # Barcodes are processed several at a time, and the results are published as soon as each
+        # barcode is finished, so the first barcodes are on screen while the others still run.
+        stopped, finished = False, 0
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            futures = {pool.submit(process, bc, folder): bc for bc, folder in groups}
+            for fut in as_completed(futures):
+                bc = futures[fut]
+                finished += 1
+                try:
+                    changed = fut.result()
+                except Stopped:
+                    stopped = True
+                    continue
+                except Exception as exc:
+                    self.log(f"ERROR {bc}: {exc}. It is tried again at the next check.")
+                    changed = False
+                self._set_job(progress={"current": finished, "total": total, "running": min(workers, total - finished)},
+                              message=f"Processing barcodes: {finished} of {total} done.")
+                if changed and not stopped:
+                    self._publish_ready(run, order)
+        if stopped or self.stop_event.is_set():
+            raise Stopped()
+        self._publish_ready(run, order)
+
+    def _depth_by_contig(self, bam_path: Path, contig_len: dict, min_mapq: int) -> dict:
+        # Same reads as the counts (primary, mapping quality filter). Bases inside a deletion are
+        # not counted, as with pysam count_coverage used before.
+        out = subprocess.run(LOW_PRIORITY + ["samtools", "depth", "-aa", "-Q", str(min_mapq), "-G", "0xF04", str(bam_path)],
+                             capture_output=True, text=True)
+        if out.returncode != 0:
+            raise RuntimeError("samtools depth failed: " + out.stderr.strip()[-300:])
+        depth = {c: np.zeros(n, dtype=np.int64) for c, n in contig_len.items()}
+        for line in out.stdout.splitlines():
+            c, p, d = line.split("\t")
+            if d != "0":
+                depth[c][int(p) - 1] = int(d)
+        return depth
+
+    def _publish_ready(self, run: dict, order: list[str]) -> None:
+        with self.state_lock:
+            ready = [bc for bc in order if bc in run["state"]["stats"]]
+        with self.publish_lock:
+            self._publish(run, ready)
 
     def _map_batch(self, files: list[Path], bam: Path, run: dict, threads: int) -> int:
         tmp_dir = run["dir"] / "tmp"
         chunk = tmp_dir / f"{bam.stem}.chunk.bam"
-        mm = subprocess.Popen(["minimap2", "-t", str(threads), "-ax", "map-ont", "--secondary=no", str(run["mmi"]), "-"],
+        mm = subprocess.Popen(LOW_PRIORITY + ["minimap2", "-t", str(threads), "-ax", "map-ont", "--secondary=no", "--sam-hit-only",
+                                              str(run["mmi"]), "-"],
                               stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        st = subprocess.Popen(["samtools", "sort", "-@", "2", "-m", "256M", "-T", str(tmp_dir / bam.stem), "-o", str(chunk), "-"],
+        st = subprocess.Popen(LOW_PRIORITY + ["samtools", "sort", "-@", "1", "-m", "200M", "-T", str(tmp_dir / bam.stem), "-o", str(chunk), "-"],
                               stdin=mm.stdout, stderr=subprocess.PIPE)
         mm.stdout.close()
-        self.procs[:] = [mm, st]
+        with self.lock:
+            self.procs.extend([mm, st])
         counter = {"lines": 0, "error": None, "bad": []}
 
         def feed():
@@ -334,7 +405,10 @@ class Monitor:
         mm_err = mm.stderr.read()
         feeder.join()
         mm_rc, st_rc = mm.wait(), st.wait()
-        self.procs.clear()
+        with self.lock:
+            for p in (mm, st):
+                if p in self.procs:
+                    self.procs.remove(p)
         self._check_stop()
         if mm_rc != 0:
             raise RuntimeError("minimap2 failed: " + mm_err.decode(errors="replace").strip()[-400:])
@@ -361,29 +435,37 @@ class Monitor:
                 "profile": {i: [] for i in ids}, "on_target": 0}
 
     def _barcode_stats(self, bam_path: Path, run: dict, cfg: dict) -> dict:
+        """Reads per fragment from one pass over the BAM, depth per base from samtools depth."""
         min_mapq, frac, min_depth = cfg["min_mapq"], cfg["min_overlap"] / 100.0, cfg["min_depth"]
-
-        def keep(read) -> bool:
-            return not (read.is_unmapped or read.is_secondary or read.is_supplementary) and read.mapping_quality >= min_mapq
-
         out = self._empty_stats(run)
         with pysam.AlignmentFile(str(bam_path), "rb") as bam:
-            out["on_target"] = sum(1 for r in bam.fetch(until_eof=True) if keep(r))
-            for f in run["fragments"]:
-                pos = run["pos"].get(f["id"])
-                if not pos:
+            contig_id = {name: i for i, name in enumerate(bam.references)}
+            contig_len = dict(zip(bam.references, bam.lengths))
+            tids, starts, ends = [], [], []
+            for r in bam.fetch(until_eof=True):
+                # 0x904: unmapped, secondary or supplementary alignment
+                if r.flag & 0x904 or r.mapping_quality < min_mapq:
                     continue
-                contig, s, e = pos
-                need = frac * (e - s)
-                out["reads"][f["id"]] = sum(
-                    1 for r in bam.fetch(contig, s, e)
-                    if keep(r) and min(r.reference_end, e) - max(r.reference_start, s) >= need
-                )
-                cov = np.sum(np.array(bam.count_coverage(contig, s, e, quality_threshold=0, read_callback=keep)), axis=0)
-                out["depth"][f["id"]] = round(float(cov.mean()), 1) if cov.size else 0.0
-                out["breadth"][f["id"]] = round(float((cov >= min_depth).mean() * 100), 1) if cov.size else 0.0
-                bins = np.array_split(cov, min(PROFILE_BINS, max(1, cov.size)))
-                out["profile"][f["id"]] = [int(round(b.mean())) for b in bins]
+                tids.append(r.reference_id)
+                starts.append(r.reference_start)
+                ends.append(r.reference_end)
+        tids, starts, ends = np.array(tids, dtype=np.int64), np.array(starts, dtype=np.int64), np.array(ends, dtype=np.int64)
+        out["on_target"] = int(tids.size)
+        depth = self._depth_by_contig(bam_path, contig_len, min_mapq)
+
+        for f in run["fragments"]:
+            pos = run["pos"].get(f["id"])
+            if not pos:
+                continue
+            contig, s, e = pos
+            on = tids == contig_id.get(contig, -1)
+            overlap = np.minimum(ends[on], e) - np.maximum(starts[on], s)
+            out["reads"][f["id"]] = int((overlap >= frac * (e - s)).sum())
+            cov = depth.get(contig, np.zeros(contig_len.get(contig, e), dtype=np.int64))[s:e]
+            out["depth"][f["id"]] = round(float(cov.mean()), 1) if cov.size else 0.0
+            out["breadth"][f["id"]] = round(float((cov >= min_depth).mean() * 100), 1) if cov.size else 0.0
+            bins = np.array_split(cov, min(PROFILE_BINS, max(1, cov.size)))
+            out["profile"][f["id"]] = [int(round(b.mean())) for b in bins]
         return out
 
     def _publish(self, run: dict, barcodes: list[str]) -> None:

@@ -1,3 +1,4 @@
+/* Malaria dashboard monitor (ONT fragment monitoring). Author: Khadim Gueye */
 :root {
   --bg: #f4f6fb;
   --surface: #ffffff;
@@ -114,7 +115,7 @@ input:focus, select:focus { border-color: var(--brand); box-shadow: 0 0 0 3px co
 .btn.big svg { fill: currentColor; stroke: none; }
 .btn-row { display: flex; gap: 8px; margin-top: 10px; }
 .btn-row .btn { flex: 1; }
-.run-actions { position: sticky; bottom: 0; padding-top: 4px; background: linear-gradient(to bottom, transparent, var(--bg) 30%); }
+.run-actions { position: sticky; bottom: 0; z-index: 5; padding-top: 4px; background: linear-gradient(to bottom, transparent, var(--bg) 30%); }
 
 .path-status { margin-top: 10px; padding: 9px 12px; border-radius: 10px; font-size: 13px; }
 .path-status.ok { background: color-mix(in srgb, var(--ok) 12%, transparent); color: var(--ok); }

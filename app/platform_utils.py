@@ -1,3 +1,4 @@
+# Malaria dashboard monitor (ONT fragment monitoring). Author: Khadim Gueye
 from __future__ import annotations
 
 import os
@@ -302,12 +303,47 @@ def open_in_file_manager(path: Path) -> None:
         subprocess.Popen(["xdg-open", str(path)])
 
 
+_WIN_APP_BROWSERS = (
+    "/mnt/c/Program Files (x86)/Microsoft/Edge/Application/msedge.exe",
+    "/mnt/c/Program Files/Microsoft/Edge/Application/msedge.exe",
+    "/mnt/c/Program Files/Google/Chrome/Application/chrome.exe",
+    "/mnt/c/Program Files (x86)/Google/Chrome/Application/chrome.exe",
+)
+
+
 def open_browser(url: str) -> None:
     if is_wsl():
+        # Edge or Chrome in app mode: its own window with the logo, no tabs and no address bar.
+        for exe in _WIN_APP_BROWSERS:
+            if os.path.exists(exe):
+                try:
+                    subprocess.Popen([exe, f"--app={url}", "--start-maximized"], cwd="/mnt/c",
+                                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    return
+                except OSError:
+                    continue
         for cmd in (["cmd.exe", "/c", "start", "", url], ["explorer.exe", url]):
             if shutil.which(cmd[0]):
                 try:
                     subprocess.Popen(cmd, cwd="/mnt/c", stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    return
+                except OSError:
+                    continue
+    elif platform.system() == "Darwin":
+        for app in ("Google Chrome", "Microsoft Edge", "Brave Browser", "Chromium"):
+            if Path(f"/Applications/{app}.app").exists():
+                try:
+                    subprocess.Popen(["open", "-na", app, "--args", f"--app={url}"],
+                                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    return
+                except OSError:
+                    continue
+    elif platform.system() == "Linux":
+        for exe in ("google-chrome", "google-chrome-stable", "chromium", "chromium-browser", "microsoft-edge", "brave-browser"):
+            if shutil.which(exe):
+                try:
+                    subprocess.Popen([exe, f"--app={url}"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                     start_new_session=True)
                     return
                 except OSError:
                     continue

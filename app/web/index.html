@@ -1,4 +1,5 @@
 <!doctype html>
+<!-- Malaria dashboard monitor (ONT fragment monitoring). Author: Khadim Gueye -->
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -98,6 +99,7 @@
           <label>Read must cover (% of fragment)<input type="number" min="1" max="100" data-setting="min_overlap"></label>
           <label>Check for new reads every (s)<input type="number" min="5" data-setting="refresh_seconds"></label>
           <label>CPU threads<input type="number" min="1" max="64" data-setting="threads"></label>
+          <label>Barcodes processed at the same time<input type="number" min="1" max="32" data-setting="parallel"></label>
         </div>
         <p class="hint small">The read target is a choice of the lab, not a published standard. Default: 100 reads.</p>
       </details>

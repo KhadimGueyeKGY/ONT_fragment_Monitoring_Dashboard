@@ -1,3 +1,5 @@
+on pass v
+
 # ONT Fragment Monitoring Dashboard
 
 Real-time monitoring of Oxford Nanopore amplicon sequencing for *Plasmodium falciparum*.
@@ -15,15 +17,26 @@ Author: Khadim Gueye, Malaria team, Institute of Genomics and Global Health (IGH
 
 Double-click the launcher for your computer. Nothing else is needed.
 
-| Computer | Double-click |
-|---|---|
-| Windows | `Start_Dashboard_Windows.bat` |
-| macOS | `Start_Dashboard_macOS.command` |
-| Linux | `Start_Dashboard_Linux.sh` |
+| Computer | Double-click | After the first start |
+| -------- | ------------ | --------------------- |
+| Windows  | `Malaria dashboard monitor.exe` (with the logo) | **Malaria dashboard monitor** on the Desktop and in the Start menu |
+| macOS    | `Start_Dashboard_macOS.command` | **Malaria dashboard monitor** in Applications and on the Desktop |
+| Linux    | `Start_Dashboard_Linux.sh` | **Malaria dashboard monitor** in the applications menu and on the Desktop |
 
-A small window opens and the dashboard appears in your web browser. Keep the small
-window open while you use the dashboard. To close everything, use **Close the dashboard**
-in the menu (three dots, top right), or close the small window.
+On Windows there is no console window: a small start window with the logo shows the
+progress, then the dashboard opens in its own window. An icon with the logo stays near the
+clock while the dashboard runs: **Open dashboard**, **Show log**, **Quit**. Monitoring
+continues when the dashboard window is closed. To stop everything, use **Quit** on that
+icon, or **Close the dashboard** in the menu (three dots, top right).
+`Start_Dashboard_Windows.bat` still works and shows the console, which helps when something
+goes wrong.
+
+On macOS and Linux a terminal window shows the progress; keep it open while you use the
+dashboard.
+
+The analysis runs at low priority and uses half of the processors by default, so the
+sequencing software (MinKNOW, basecalling) on the same computer is not slowed down. Both
+can be changed in **Settings**.
 
 The first start takes a few minutes, because the launcher prepares everything by itself:
 
@@ -67,21 +80,22 @@ allow it to run as a program, or start it from a terminal with
    add your own fragments, one by one or from a BED or TSV file.
 3. **Settings** (optional). Reads needed per fragment (default 100), depth counted as
    covered, minimum mapping quality, minimum part of the fragment a read must cover,
-   time between two checks, CPU threads.
-4. Click **Start monitoring**. New reads are processed automatically every 30 seconds.
+   time between two checks, CPU threads, barcodes processed at the same time (default 10).
+4. Click **Start monitoring**. Barcodes are processed 10 at a time, and each one appears in
+   the charts as soon as it is finished. New reads are processed automatically every 30 seconds.
    Click **Stop monitoring** to stop. Starting again on the same run continues where it
    stopped: files already processed are not processed again.
 
 ## 3. Read the results
 
-| Tab | What it shows |
-|---|---|
-| Overview | One cell per barcode and fragment with its read count. Blue: target reached. Red: below target, darker means fewer reads. Click a cell to open the fragment. |
-| Plate map | One 96-well plate per fragment. Blue: target reached. Red: below target. Grey: 0 reads. Dashed: no barcode in that well. The layout is fixed by the lab, not read from the run: barcode01 in A1, then down each column (barcode02 in B1 ... barcode08 in H1, barcode09 in A2). |
-| Reads per fragment | One bar chart per fragment, one bar per barcode, with the target as a dashed line. |
-| Depth and coverage | Mean depth and percentage of the fragment covered, then the depth along a fragment for each barcode. |
-| hrp2 / hrp3 | Shown only when hrp2 or hrp3 is selected. Status per barcode, and reads on hrp2 / hrp3 compared with the other fragments. |
-| Activity | What the dashboard is doing, and a download of the full fragment table. |
+| Tab                | What it shows                                                                                                                                                                                                                                                                  |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Overview           | One cell per barcode and fragment with its read count. Blue: target reached. Red: below target, darker means fewer reads. Click a cell to open the fragment.                                                                                                                   |
+| Plate map          | One 96-well plate per fragment. Blue: target reached. Red: below target. Grey: 0 reads. Dashed: no barcode in that well. The layout is fixed by the lab, not read from the run: barcode01 in A1, then down each column (barcode02 in B1 ... barcode08 in H1, barcode09 in A2). |
+| Reads per fragment | One bar chart per fragment, one bar per barcode, with the target as a dashed line.                                                                                                                                                                                             |
+| Depth and coverage | Mean depth and percentage of the fragment covered, then the depth along a fragment for each barcode.                                                                                                                                                                           |
+| hrp2 / hrp3        | Shown only when hrp2 or hrp3 is selected. Status per barcode, and reads on hrp2 / hrp3 compared with the other fragments.                                                                                                                                                      |
+| Activity           | What the dashboard is doing, and a download of the full fragment table.                                                                                                                                                                                                        |
 
 ### hrp2 and hrp3 screen
 
@@ -106,7 +120,8 @@ the monitored gene.
    side, overlapping fragments merged into one locus). Reads are mapped on these loci only,
    not on the whole genome, which is faster and fits amplicon sequencing.
 2. Only new FASTQ files of each barcode are mapped (`minimap2 -ax map-ont`), then merged
-   into one sorted and indexed BAM per barcode.
+   into one sorted and indexed BAM per barcode. Several barcodes are mapped at the same
+   time; the CPU threads are shared between them.
 3. A read counts for a fragment when it is a primary alignment, its mapping quality is at
    least the minimum (default 10), and it covers at least the chosen part of the fragment
    (default 50 percent). A long read that spans two overlapping fragments counts for both.
@@ -121,14 +136,14 @@ It can be changed in the settings.
 Each run is written in `results/<run folder name>_<code>/`. The button **Results folder**
 opens it.
 
-| File | Content |
-|---|---|
-| `bam/barcodeXX.bam` and `.bai` | reads of the barcode aligned on the selected fragments |
-| `fragment_stats.tsv` | barcode, fragment, reads, mean depth, coverage |
-| `hrp_deletion_screen.tsv` | hrp2 / hrp3 status per barcode, when selected |
-| `fragments_reference.fasta` | the extracted loci used for mapping |
-| `run_info.json` | run folder, fragments and settings used |
-| `results.json`, `state.json` | what the dashboard displays, and the files already processed |
+| File                               | Content                                                      |
+| ---------------------------------- | ------------------------------------------------------------ |
+| `bam/barcodeXX.bam` and `.bai` | reads of the barcode aligned on the selected fragments       |
+| `fragment_stats.tsv`             | barcode, fragment, reads, mean depth, coverage               |
+| `hrp_deletion_screen.tsv`        | hrp2 / hrp3 status per barcode, when selected                |
+| `fragments_reference.fasta`      | the extracted loci used for mapping                          |
+| `run_info.json`                  | run folder, fragments and settings used                      |
+| `results.json`, `state.json`   | what the dashboard displays, and the files already processed |
 
 ## 6. Fragment catalog
 
@@ -150,13 +165,13 @@ the reference genome and your custom fragments, then restarts the dashboard.
 
 ## 8. Troubleshooting
 
-| Problem | What to do |
-|---|---|
-| The browser did not open | Open the address shown in the small window, for example `http://127.0.0.1:8866`. |
-| "No fastq_pass folder" | Select the `fastq_pass` folder itself or a folder above it. |
-| A barcode stays at 0 | Check that its folder contains `.fastq` or `.fastq.gz` files. Files are processed about 10 seconds after they are written. |
-| The reference download fails | Check the internet connection, then close and start the dashboard again. |
-| Something else | Read the **Activity** tab and the small window. |
+| Problem                      | What to do                                                                                                                     |
+| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| The browser did not open     | Open the address shown in the small window, for example `http://127.0.0.1:8866`.                                             |
+| "No fastq_pass folder"       | Select the `fastq_pass` folder itself or a folder above it.                                                                  |
+| A barcode stays at 0         | Check that its folder contains `.fastq` or `.fastq.gz` files. Files are processed about 10 seconds after they are written. |
+| The reference download fails | Check the internet connection, then close and start the dashboard again.                                                       |
+| Something else               | Read the **Activity** tab and the small window.                                                                          |
 
 Reproducibility: the software versions are those of the conda environment
 `ont_fragment_dashboard` defined in `environment.yml` (Python, minimap2, samtools, pysam,

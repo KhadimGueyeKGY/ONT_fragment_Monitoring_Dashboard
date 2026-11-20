@@ -565,6 +565,7 @@ $("#updYes").onclick = async () => {
   btn.disabled = true; btn.textContent = "Updating...";
   try {
     if (S.running) await api("/api/stop", {});
+    S.updating = true;
     await api("/api/update", {});
     btn.textContent = "Restarting...";
     const t0 = Date.now();
@@ -846,6 +847,14 @@ function drawDeletion() {
     shapes: [{ type: "line", xref: "paper", x0: 0, x1: 1, y0: d.ratio, y1: d.ratio, line: { color: css("--bad"), width: 1.5, dash: "dash" } }],
   }), PLOT_CFG);
 }
+
+/* closing the dashboard window closes the application (a reload does not, see server.py) */
+window.addEventListener("pagehide", () => {
+  if (S.closed || S.updating) return;
+  try {
+    fetch("/api/closing", { method: "POST", keepalive: true, headers: { "Content-Type": "application/json" }, body: "{}" });
+  } catch (e) {}
+});
 
 let resizeTimer;
 window.addEventListener("resize", () => {

@@ -32,6 +32,11 @@ INSTANCE_FILE = STATE_DIR / "instance.json"
 PREFS_FILE = STATE_DIR / "preferences.json"
 
 LOG = deque(maxlen=600)
+# Closing the dashboard window closes the whole application. The page reports that it is being
+# closed; if no page asks for news within CLOSE_GRACE seconds (a reload asks within 2 s, and so
+# does any other open dashboard window), the application stops.
+CLOSE_GRACE = 8
+LAST_POLL = [time.time()]
 
 
 def log(msg: str) -> None:
@@ -83,6 +88,10 @@ class App:
         return {l.split("\t")[0]: int(l.split("\t")[1]) for l in fai.read_text().splitlines() if l}
 
     def shutdown(self, code: int = 0) -> None:
+        # The first request wins: a window closed during an update restart must not cancel it.
+        if getattr(self, "stopping", False):
+            return
+        self.stopping = True
         self.exit_code = code
         self.monitor.stop()
 
@@ -144,6 +153,7 @@ class Handler(BaseHTTPRequestHandler):
             if url.path == "/api/ping":
                 return self._json({"ok": True, "app": "ont-fragment-dashboard"})
             if url.path == "/api/state":
+                LAST_POLL[0] = time.time()
                 return self._json({
                     "setup": APP.reference.snapshot(),
                     "job": APP.monitor.status(),
@@ -255,6 +265,16 @@ class Handler(BaseHTTPRequestHandler):
             if url.path == "/api/quit":
                 APP.shutdown(0)
                 return self._json({"ok": True})
+            if url.path == "/api/closing":
+                closed_at = time.time()
+
+                def close_if_no_window():
+                    time.sleep(CLOSE_GRACE)
+                    if LAST_POLL[0] < closed_at:
+                        log("The dashboard window was closed. Closing the application.")
+                        APP.shutdown(0)
+                threading.Thread(target=close_if_no_window, daemon=True).start()
+                return self._json({"ok": True})
             self._send(404, b"Not found", "text/plain")
         except ValueError as exc:
             self._json({"error": str(exc)}, 400)
@@ -298,8 +318,15 @@ def main() -> int:
     if running:
         print(f"The dashboard is already running at {running}. Opening it.")
         if not args.no_browser:
-            pu.open_browser(running)
-        return 0
+            opener = pu.open_browser(running)
+            # Wait for the window to open: this process ends right after, and on Windows the
+            # program that opens the window would otherwise be stopped with it.
+            if opener is not None:
+                try:
+                    opener.wait(timeout=40)
+                except Exception:
+                    pass
+        return 3
 
     APP = App()
     port = free_port(args.port)

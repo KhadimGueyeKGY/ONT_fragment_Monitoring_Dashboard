@@ -26,11 +26,15 @@ public static class DashboardWindow {
     }, IntPtr.Zero);
     return found;
   }
+  [DllImport("user32.dll")] static extern bool IsIconic(IntPtr h);
   public static void Maximize(long h) { ShowWindow(new IntPtr(h), 3); SetForegroundWindow(new IntPtr(h)); }
+  public static void Bring(long h) { if (IsIconic(new IntPtr(h))) ShowWindow(new IntPtr(h), 9); SetForegroundWindow(new IntPtr(h)); }
 }
 '@
 $before = @{}
 foreach ($h in [DashboardWindow]::Find($Title)) { $before[$h] = $true }
+# A dashboard window is already open: bring it to the front instead of opening a second one.
+if ($before.Count -gt 0) { [DashboardWindow]::Bring(($before.Keys | Select-Object -First 1)); exit 0 }
 
 $browsers = @(
   "${env:ProgramFiles(x86)}\Microsoft\Edge\Application\msedge.exe",

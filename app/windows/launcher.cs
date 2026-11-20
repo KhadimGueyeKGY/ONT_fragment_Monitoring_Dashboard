@@ -34,8 +34,12 @@ static class Program
             string root = AppDomain.CurrentDomain.BaseDirectory.TrimEnd('\\');
             if (!first)
             {
-                // Already running: the dashboard itself reopens its window.
-                Launcher.StartHidden(root, true);
+                // Already running: ask the running program to open the dashboard window again.
+                try
+                {
+                    using (var open = EventWaitHandle.OpenExisting(Launcher.OpenSignal)) open.Set();
+                }
+                catch { }
                 return;
             }
             if (!Launcher.WslReady())
@@ -51,6 +55,8 @@ static class Program
 
 class Launcher : Form
 {
+    public const string OpenSignal = "MalariaDashboardMonitorOpenWindow";
+    readonly EventWaitHandle openSignal = new EventWaitHandle(false, EventResetMode.AutoReset, OpenSignal);
     readonly string root;
     readonly string logPath;
     readonly Label status = new Label();
@@ -117,6 +123,15 @@ class Launcher : Form
         tray.DoubleClick += (s, e) => OpenDashboard();
         tray.Visible = true;
 
+        var watcher = new Thread(() =>
+        {
+            while (true)
+            {
+                openSignal.WaitOne();
+                try { BeginInvoke((Action)OpenDashboard); } catch { return; }
+            }
+        }) { IsBackground = true };
+        watcher.Start();
         TopMost = true;
         Shown += (s, e) => { Activate(); BringToFront(); StartBackend(); };
         FormClosing += (s, e) => { if (!quitting && ready) { e.Cancel = true; Hide(); } };

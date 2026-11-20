@@ -25,9 +25,12 @@ Double-click the launcher for your computer. Nothing else is needed.
 
 On Windows there is no console window: a small start window with the logo shows the
 progress, then the dashboard opens in its own window. An icon with the logo stays near the
-clock while the dashboard runs: **Open dashboard**, **Show log**, **Quit**. Monitoring
-continues when the dashboard window is closed. To stop everything, use **Quit** on that
-icon, or **Close the dashboard** in the menu (three dots, top right).
+clock while the dashboard runs: **Open dashboard**, **Show log**, **Quit**.
+
+Closing the dashboard window closes the whole application, including the monitoring
+(reloading the page does not). The next double-click starts it again; results already
+computed for a run are shown again when that run is started. Double-clicking while the
+dashboard is open brings its window to the front.
 `Start_Dashboard_Windows.bat` still works and shows the console, which helps when something
 goes wrong.
 

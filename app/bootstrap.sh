@@ -183,5 +183,10 @@ while true; do
     solve update && env_hash > "$MARK"
   fi
 done
-say "The dashboard is closed. You can close this window."
+# 3: the dashboard was already running and its window has been opened again.
+if [ "$code" -eq 3 ]; then
+  say "The dashboard was already running. Its window is open."
+  exit 0
+fi
+say "The dashboard is closed."
 exit "$code"

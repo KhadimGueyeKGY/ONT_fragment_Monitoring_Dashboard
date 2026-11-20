@@ -311,7 +311,8 @@ _WIN_APP_BROWSERS = (
 )
 
 
-def open_browser(url: str) -> None:
+def open_browser(url: str):
+    """Opens the dashboard window. Returns the process that opens it when there is one to wait for."""
     if is_wsl():
         # Edge or Chrome in app mode: its own window with the logo, no tabs and no address bar,
         # opened full screen (maximized) by open_window.ps1. The user can make it smaller.
@@ -320,10 +321,9 @@ def open_browser(url: str) -> None:
         win_script = _wslpath("-w", str(script)) if script.exists() else None
         if win_script and os.path.exists(ps):
             try:
-                subprocess.Popen([ps, "-NoProfile", "-ExecutionPolicy", "Bypass", "-WindowStyle", "Hidden",
-                                  "-File", win_script, "-Url", url], cwd="/mnt/c",
-                                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                return
+                return subprocess.Popen([ps, "-NoProfile", "-ExecutionPolicy", "Bypass", "-WindowStyle", "Hidden",
+                                         "-File", win_script, "-Url", url], cwd="/mnt/c",
+                                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             except OSError:
                 pass
         for exe in _WIN_APP_BROWSERS:

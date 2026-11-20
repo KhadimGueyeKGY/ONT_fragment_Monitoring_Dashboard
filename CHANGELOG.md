@@ -1,5 +1,14 @@
 # Changelog
 
+## 3.0.3
+
+- Fixed: after the dashboard window was closed, the next start did not open the dashboard
+  until the computer was restarted.
+- Closing the dashboard window now closes the whole application (dashboard, monitoring and
+  the icon near the clock). Reloading the page does not close it.
+- Starting the dashboard while it is already open brings its window to the front instead of
+  opening a second one.
+
 ## 3.0.2
 
 - The dashboard window opens full screen (maximized) at every start. It can still be made

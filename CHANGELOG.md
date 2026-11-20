@@ -1,5 +1,10 @@
 # Changelog
 
+## 3.0.2
+
+- The dashboard window opens full screen (maximized) at every start. It can still be made
+  smaller; windows that are already open are not changed.
+
 ## 3.0.1
 
 - Faster: the statistics of a barcode are computed about 25 times faster (same values).

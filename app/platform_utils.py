@@ -313,7 +313,19 @@ _WIN_APP_BROWSERS = (
 
 def open_browser(url: str) -> None:
     if is_wsl():
-        # Edge or Chrome in app mode: its own window with the logo, no tabs and no address bar.
+        # Edge or Chrome in app mode: its own window with the logo, no tabs and no address bar,
+        # opened full screen (maximized) by open_window.ps1. The user can make it smaller.
+        script = Path(__file__).resolve().parent / "windows" / "open_window.ps1"
+        ps = shutil.which("powershell.exe") or "/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe"
+        win_script = _wslpath("-w", str(script)) if script.exists() else None
+        if win_script and os.path.exists(ps):
+            try:
+                subprocess.Popen([ps, "-NoProfile", "-ExecutionPolicy", "Bypass", "-WindowStyle", "Hidden",
+                                  "-File", win_script, "-Url", url], cwd="/mnt/c",
+                                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                return
+            except OSError:
+                pass
         for exe in _WIN_APP_BROWSERS:
             if os.path.exists(exe):
                 try:

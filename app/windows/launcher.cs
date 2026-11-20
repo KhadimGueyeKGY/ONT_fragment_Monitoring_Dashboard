@@ -230,6 +230,14 @@ class Launcher : Form
     void OpenDashboard()
     {
         if (url == null) { Show(); Activate(); return; }
+        string script = Path.Combine(root, "app", "windows", "open_window.ps1");
+        if (File.Exists(script))
+        {
+            Process.Start(new ProcessStartInfo("powershell.exe",
+                "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File \"" + script + "\" -Url " + url)
+                { CreateNoWindow = true, UseShellExecute = false });
+            return;
+        }
         string[] browsers = {
             @"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
             @"C:\Program Files\Microsoft\Edge\Application\msedge.exe",
